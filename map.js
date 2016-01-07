@@ -4,10 +4,12 @@ function main() {
   // Simplest credentials ever.
   var authorization =  "Basic " + btoa("public:notsecret");
 
+  // Kinto bucket/collection.
   var bucket = "default";
   var collection = "kinto_demo_leaflet";
   var url = `${server}/buckets/${bucket}/collections/${collection}/records`;
 
+  // Resuable HTTP headers.
   var headers = {
     "Accept":        "application/json",
     "Content-Type":  "application/json",
@@ -25,6 +27,7 @@ function main() {
   // Group of markers.
   var markers = {};
 
+  // Get records from server on load.
   fetch(url, {headers: headers})
     .then(function (response) {
       return response.json();
@@ -36,6 +39,7 @@ function main() {
 
   // Create marker on double-click.
   map.on('dblclick', function(event) {
+    // POST the record on server.
     var body = JSON.stringify({data: {latlng: event.latlng}});
     fetch(url, {method: "POST", body: body, headers: headers})
       .then(function (response) {
@@ -54,15 +58,16 @@ function main() {
     // Store reference by record id.
     markers[record.id] = marker;
 
-    var recordUrl = `${url}/${record.id}`;
-
     // Listen to events on marker.
+    var recordUrl = `${url}/${record.id}`;
     marker.on('dblclick', function () {
+      // Send DELETE request on server.
       fetch(recordUrl, {method: "DELETE", headers: headers})
         .then(removeMarker.bind(undefined, record));
     });
     marker.on('dragend', function () {
       var body = JSON.stringify({data: {latlng: marker.getLatLng()}});
+      // Send PATCH request (modify) on server.
       fetch(recordUrl, {method: "PATCH", body: body, headers: headers});
     });
   }
