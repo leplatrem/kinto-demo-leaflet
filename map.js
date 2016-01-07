@@ -4,11 +4,15 @@ function main() {
   // Simplest credentials ever.
   var authorization =  "Basic " + btoa("public:notsecret");
 
-  // Kinto client with sync options.
-  var kinto = new Kinto({remote: server, headers: {Authorization: authorization}});
+  var bucket = "default";
+  var collection = "kinto_demo_leaflet";
+  var url = `${server}/buckets/${bucket}/collections/${collection}/records`;
 
-  // Local store in IndexedDB.
-  var store = kinto.collection("kinto_demo_leaflet");
+  var headers = {
+    "Accept":        "application/json",
+    "Content-Type":  "application/json",
+    "Authorization": authorization,
+  };
 
   // Initialize map centered on my hometown.
   var map = L.map('map', {
@@ -21,23 +25,26 @@ function main() {
   // Group of markers.
   var markers = {};
 
-  // Load previously created records.
-  store.list()
-    .then(function(results) {
-      // Add each marker to map.
-      results.data.map(addMarker);
+  fetch(url, {headers: headers})
+    .then(function (response) {
+      return response.json();
     })
-    .then(syncServer);
+    .then(function (result) {
+      // Add each marker to map.
+      result.data.map(addMarker);
+    });
 
   // Create marker on double-click.
   map.on('dblclick', function(event) {
-    // Save in local store.
-    store.create({latlng: event.latlng})
+    var body = JSON.stringify({data: {latlng: event.latlng}});
+    fetch(url, {method: "POST", body: body, headers: headers})
+      .then(function (response) {
+        return response.json();
+      })
       .then(function (result) {
         // Add marker to map.
         addMarker(result.data);
-      })
-      .then(syncServer);
+      });
   });
 
   function addMarker(record) {
@@ -47,54 +54,22 @@ function main() {
     // Store reference by record id.
     markers[record.id] = marker;
 
+    var recordUrl = `${url}/${record.id}`;
+
     // Listen to events on marker.
     marker.on('dblclick', function () {
-      store.delete(record.id)
-        .then(removeMarker.bind(undefined, record))
-        .then(syncServer);
+      fetch(recordUrl, {method: "DELETE", headers: headers})
+        .then(removeMarker.bind(undefined, record));
     });
     marker.on('dragend', function () {
-      var newlatlng = {latlng: marker.getLatLng()};
-      store.get(record.id)
-        .then(function (result) {
-          var newrecord = Object.assign(result.data, newlatlng);
-          return store.update(newrecord);
-        })
-        .then(syncServer);
+      var body = JSON.stringify({data: {latlng: marker.getLatLng()}});
+      fetch(recordUrl, {method: "PATCH", body: body, headers: headers});
     });
-  }
-
-  function updateMarker(record) {
-    markers[record.id].setLatLng(record.latlng);
   }
 
   function removeMarker(record) {
     map.removeLayer(markers[record.id]);
     delete markers[record.id];
-  }
-
-  function syncServer() {
-    var options = {strategy: Kinto.syncStrategy.CLIENT_WINS};
-    store.sync(options)
-      .then(function (result) {
-        if (result.ok) {
-          // Add markers for newly created records.
-          result.created.map(addMarker);
-          // Move updated markers.
-          result.updated.map(updateMarker);
-          // Remove markers of deleted records.
-          result.deleted.map(removeMarker);
-        }
-      })
-      .catch(function (err) {
-        // Special treatment since the demo server is flushed.
-        if (/flushed/.test(err.message)) {
-          // Mark every local record as «new» and re-upload.
-          return store.resetSyncStatus()
-            .then(syncServer);
-        }
-        throw err;
-      });
   }
 }
 
